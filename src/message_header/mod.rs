@@ -16,3 +16,31 @@ bit_register! {
         pub rest: u32 => [0:23],
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mctp_message_type::MctpMessageType;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(0, MctpMessageType::MctpControl, 0)]
+    #[case(1, MctpMessageType::MctpControl, 0)]
+    #[case(0, MctpMessageType::VendorDefinedPci, 0)]
+    #[case(1, MctpMessageType::VendorDefinedPci, 0)]
+    fn serialize_deserialize_mctp_message_header(
+        #[case] integrity_check: u8,
+        #[case] message_type: MctpMessageType,
+        #[case] rest: u32,
+    ) {
+        let header = MctpMessageHeader {
+            integrity_check,
+            message_type,
+            rest,
+        };
+
+        let be_bytes = TryInto::<u32>::try_into(header).unwrap().to_be_bytes();
+        let parsed = MctpMessageHeader::try_from(u32::from_be_bytes(be_bytes)).unwrap();
+        assert_eq!(parsed, header);
+    }
+}
