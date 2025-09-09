@@ -20,6 +20,7 @@ impl From<MctpVendorDefinedPciMessageHeader> for MctpMessageHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn test_mctp_vendor_defined_pci_message_header_bit_register() {
@@ -43,5 +44,24 @@ mod tests {
             TryInto::<u32>::try_into(as_struct).unwrap().to_be_bytes(),
             as_be_bytes
         );
+    }
+
+    #[rstest]
+    #[case(0, MctpMessageType::VendorDefinedPci, 0x0000)]
+    #[case(1, MctpMessageType::VendorDefinedPci, 0xFFFF)]
+    #[case(0, MctpMessageType::VendorDefinedPci, 0x1234)]
+    fn serialize_deserialize_roundtrip(
+        #[case] integrity_check: u8,
+        #[case] message_type: MctpMessageType,
+        #[case] pci_vendor_id: u16,
+    ) {
+        let header = MctpVendorDefinedPciMessageHeader {
+            integrity_check,
+            message_type,
+            pci_vendor_id,
+        };
+        let bytes = TryInto::<u32>::try_into(header).unwrap().to_be_bytes();
+        let parsed = MctpVendorDefinedPciMessageHeader::try_from(u32::from_be_bytes(bytes)).unwrap();
+        assert_eq!(parsed, header);
     }
 }

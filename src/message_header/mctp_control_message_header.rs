@@ -29,6 +29,7 @@ impl From<MctpControlMessageHeader> for MctpMessageHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
     #[test]
     fn test_mctp_control_message_header_bit_register() {
         assert_eq!(
@@ -57,6 +58,33 @@ mod tests {
                 ..Default::default()
             }
         );
+    }
+
+    #[rstest]
+    #[case(0, 0, 0, 0, MctpCommandCode::SetEndpointId, MctpCompletionCode::Success)]
+    #[case(1, 1, 1, 0x1F, MctpCommandCode::GetEndpointId, MctpCompletionCode::Error)]
+    #[case(0, 0, 1, 3, MctpCommandCode::QueryHop, MctpCompletionCode::CommandSpecific(0x80))]
+    fn serialize_deserialize_roundtrip(
+        #[case] integrity_check: u8,
+        #[case] request_bit: u8,
+        #[case] datagram_bit: u8,
+        #[case] instance_id: u8,
+        #[case] command_code: MctpCommandCode,
+        #[case] completion_code: MctpCompletionCode,
+    ) {
+        let header = MctpControlMessageHeader {
+            integrity_check,
+            message_type: MctpMessageType::MctpControl,
+            request_bit,
+            datagram_bit,
+            instance_id,
+            command_code,
+            completion_code,
+        };
+
+        let as_be_bytes = TryInto::<u32>::try_into(header).unwrap().to_be_bytes();
+        let parsed = MctpControlMessageHeader::try_from(u32::from_be_bytes(as_be_bytes)).unwrap();
+        assert_eq!(parsed, header);
     }
 
     fn test_into_mctp_message_header() {
