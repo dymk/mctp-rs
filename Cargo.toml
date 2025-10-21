@@ -6,7 +6,6 @@ edition = "2024"
 [features]
 default = []
 espi = ["dep:espi-device"]
-odp = ["dep:uuid", "dep:embedded-batteries"]
 defmt = ["dep:defmt", "embedded-batteries/defmt"]
 
 [dependencies]
