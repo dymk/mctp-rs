@@ -13,7 +13,6 @@ MCTP is a communication protocol designed for platform management subsystems in 
 ## Features
 
 - `espi` - Enables eSPI device support via the `espi-device` crate
-- `odp` - Enables ODP specific message types - [docs](https://dymk.github.io/mctp-rs/mctp_rs/message_type/odp)
 
 ## Documentation & Usage
 

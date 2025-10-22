@@ -154,9 +154,9 @@
 
 mod deserialize;
 mod endpoint_id;
-mod error;
+pub mod error;
 mod mctp_command_code;
-mod mctp_completion_code;
+pub mod mctp_completion_code;
 mod mctp_message_tag;
 mod mctp_packet_context;
 mod mctp_sequence_number;
