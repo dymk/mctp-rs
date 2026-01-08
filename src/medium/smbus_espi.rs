@@ -3,7 +3,10 @@ use bit_register::{NumBytes, TryFromBits, TryIntoBits, bit_register};
 use crate::{
     MctpPacketError,
     error::MctpPacketResult,
-    medium::{MctpMedium, MctpMediumFrame, util::Zero},
+    medium::{
+        MctpMedium, MctpMediumFrame,
+        util::{One, Zero},
+    },
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -131,16 +134,19 @@ impl NumBytes for SmbusCommandCode {
     const NUM_BYTES: usize = 1;
 }
 
+// SMBus header per documentation in eSPI spec: https://cdrdv2-public.intel.com/841685/841685_ESPI_IBS_TS_Rev_1_6.pdf
+// See figure 46 on page 74.  This struct corresponds to bytes 3..=6 of the sample OOB MCTP packet
+// frame.
 bit_register! {
     #[derive(Copy, Clone, PartialEq, Eq, Default, Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     struct SmbusEspiMediumHeader: little_endian u32 {
         pub destination_slave_address: u8 => [25:31],
         pub _reserved1: Zero => [24],
-        pub command_code: SmbusCommandCode => [16:24],
+        pub command_code: SmbusCommandCode => [16:23],
         pub byte_count: u8 => [8:15],
         pub source_slave_address: u8 => [1:7],
-        pub _reserved2: Zero => [0],
+        pub _reserved2: One => [0],
     }
 }
 
@@ -236,7 +242,7 @@ mod tests {
             0x20, // destination_slave_address
             0x0F, // command_code (MCTP)
             0x0A, // byte_count: 10 bytes
-            0x20, // source_slave_address
+            0x21, // source_slave_address
         ];
 
         let short_payload = [0xAA, 0xBB]; // Only 2 bytes, but header says 10
@@ -289,7 +295,7 @@ mod tests {
             0x20, // destination_slave_address
             0x0F, // command_code (MCTP)
             0x00, // byte_count: 0 bytes
-            0x20, // source_slave_address
+            0x21, // source_slave_address
         ];
 
         let pec = smbus_pec::pec(&header_bytes);
@@ -665,7 +671,7 @@ mod tests {
                 0x20,       // destination_slave_address
                 0x0F,       // command_code (MCTP)
                 byte_count, // byte_count
-                0x20,       // source_slave_address
+                0x21,       // source_slave_address
             ];
 
             let payload = [0x42u8; 255];
@@ -700,7 +706,7 @@ mod tests {
             0x20, // destination_slave_address
             0x0F, // command_code (MCTP)
             0xFF, // byte_count: 255 bytes (maximum)
-            0x20, // source_slave_address
+            0x21, // source_slave_address
         ];
 
         // Provide a packet that's too short for the claimed byte_count
@@ -768,7 +774,7 @@ mod tests {
             0x20, // destination_slave_address
             0x0F, // command_code (MCTP)
             0x05, // byte_count: 5 bytes
-            0x20, // source_slave_address
+            0x21, // source_slave_address
         ];
 
         // Provide exactly enough bytes for the data but no PEC byte
@@ -795,7 +801,7 @@ mod tests {
             0x20, // destination_slave_address
             0x0F, // command_code (MCTP)
             0x00, // byte_count: 0 bytes
-            0x20, // source_slave_address
+            0x21, // source_slave_address
         ];
 
         // Test with packet missing PEC byte
