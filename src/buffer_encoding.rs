@@ -96,14 +96,13 @@ impl BufferEncoding for PassthroughEncoding {
 /// copy loop in `MctpPacketContext`) so they cannot accidentally bypass
 /// the encoding by slicing the underlying buffer directly.
 ///
-/// Holds three pieces of state: the borrowed wire buffer, a cursor
-/// (`wire_pos`) into it, and a count of decoded bytes emitted so far.
-/// The cursor advances by the per-call wire-bytes-consumed value
-/// returned by `E::read_byte` (1 for plain, ≥2 for an escape sequence).
+/// Holds two pieces of state: the borrowed wire buffer and a cursor
+/// (`wire_pos`) into it. The cursor advances by the per-call
+/// wire-bytes-consumed value returned by `E::read_byte` (1 for plain,
+/// ≥2 for an escape sequence).
 pub struct EncodingDecoder<'buf, E: BufferEncoding> {
     buf: &'buf [u8],
     wire_pos: usize,
-    decoded_count: usize,
     _phantom: core::marker::PhantomData<E>,
 }
 
@@ -113,7 +112,6 @@ impl<'buf, E: BufferEncoding> EncodingDecoder<'buf, E> {
         Self {
             buf,
             wire_pos: 0,
-            decoded_count: 0,
             _phantom: core::marker::PhantomData,
         }
     }
@@ -125,18 +123,12 @@ impl<'buf, E: BufferEncoding> EncodingDecoder<'buf, E> {
     pub fn read(&mut self) -> Result<u8, DecodeError> {
         let (byte, n) = E::read_byte(&self.buf[self.wire_pos..])?;
         self.wire_pos += n;
-        self.decoded_count += 1;
         Ok(byte)
     }
 
     /// Wire bytes consumed so far.
     pub fn wire_position(&self) -> usize {
         self.wire_pos
-    }
-
-    /// Decoded bytes emitted so far.
-    pub fn decoded_count(&self) -> usize {
-        self.decoded_count
     }
 
     /// Wire bytes remaining in the underlying buffer.
@@ -149,7 +141,6 @@ impl<E: BufferEncoding> core::fmt::Debug for EncodingDecoder<'_, E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("EncodingDecoder")
             .field("wire_pos", &self.wire_pos)
-            .field("decoded_count", &self.decoded_count)
             .field("buf_len", &self.buf.len())
             .finish_non_exhaustive()
     }
@@ -161,15 +152,11 @@ impl<E: BufferEncoding> core::fmt::Debug for EncodingDecoder<'_, E> {
 /// into the caller's `message_writer` closure so the closure cannot
 /// accidentally bypass the encoding.
 ///
-/// Tracks both `wire_pos` (cursor into the underlying buffer, advances by
-/// the wire-bytes-written value returned by `E::write_byte`) and
-/// `decoded_count` (number of logical payload bytes written so far,
-/// useful for medium headers that record decoded byte counts —
-/// e.g., DSP0253 `byte_count`).
+/// Tracks `wire_pos` (cursor into the underlying buffer, advances by
+/// the wire-bytes-written value returned by `E::write_byte`).
 pub struct EncodingEncoder<'buf, E: BufferEncoding> {
     buf: &'buf mut [u8],
     wire_pos: usize,
-    decoded_count: usize,
     _phantom: core::marker::PhantomData<E>,
 }
 
@@ -179,7 +166,6 @@ impl<'buf, E: BufferEncoding> EncodingEncoder<'buf, E> {
         Self {
             buf,
             wire_pos: 0,
-            decoded_count: 0,
             _phantom: core::marker::PhantomData,
         }
     }
@@ -190,7 +176,6 @@ impl<'buf, E: BufferEncoding> EncodingEncoder<'buf, E> {
     pub fn write(&mut self, byte: u8) -> Result<(), EncodeError> {
         let n = E::write_byte(&mut self.buf[self.wire_pos..], byte)?;
         self.wire_pos += n;
-        self.decoded_count += 1;
         Ok(())
     }
 
@@ -209,11 +194,6 @@ impl<'buf, E: BufferEncoding> EncodingEncoder<'buf, E> {
         self.wire_pos
     }
 
-    /// Decoded (logical) bytes written so far.
-    pub fn decoded_count(&self) -> usize {
-        self.decoded_count
-    }
-
     /// Wire bytes remaining in the underlying buffer.
     pub fn remaining_wire(&self) -> usize {
         self.buf.len() - self.wire_pos
@@ -224,7 +204,6 @@ impl<E: BufferEncoding> core::fmt::Debug for EncodingEncoder<'_, E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("EncodingEncoder")
             .field("wire_pos", &self.wire_pos)
-            .field("decoded_count", &self.decoded_count)
             .field("buf_len", &self.buf.len())
             .finish_non_exhaustive()
     }
@@ -293,14 +272,12 @@ mod tests {
         let buf = [0xAA, 0xBB, 0xCC, 0xDD];
         let mut decoder = EncodingDecoder::<PassthroughEncoding>::new(&buf);
         assert_eq!(decoder.wire_position(), 0);
-        assert_eq!(decoder.decoded_count(), 0);
         assert_eq!(decoder.remaining_wire(), 4);
         assert_eq!(decoder.read().unwrap(), 0xAA);
         assert_eq!(decoder.read().unwrap(), 0xBB);
         assert_eq!(decoder.read().unwrap(), 0xCC);
         assert_eq!(decoder.read().unwrap(), 0xDD);
         assert_eq!(decoder.wire_position(), 4);
-        assert_eq!(decoder.decoded_count(), 4);
         assert_eq!(decoder.remaining_wire(), 0);
         assert_eq!(decoder.read().unwrap_err(), DecodeError::PrematureEnd);
     }
@@ -311,14 +288,12 @@ mod tests {
         {
             let mut encoder = EncodingEncoder::<PassthroughEncoding>::new(&mut buf);
             assert_eq!(encoder.wire_position(), 0);
-            assert_eq!(encoder.decoded_count(), 0);
             assert_eq!(encoder.remaining_wire(), 4);
             encoder.write(0x11).unwrap();
             encoder.write(0x22).unwrap();
             encoder.write(0x33).unwrap();
             encoder.write(0x44).unwrap();
             assert_eq!(encoder.wire_position(), 4);
-            assert_eq!(encoder.decoded_count(), 4);
             assert_eq!(encoder.remaining_wire(), 0);
             assert_eq!(encoder.write(0x55).unwrap_err(), EncodeError::BufferFull);
         }
