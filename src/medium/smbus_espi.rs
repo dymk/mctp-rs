@@ -80,21 +80,21 @@ impl MctpMedium for SmbusEspiMedium {
         // Write the body first via an encoder over the body region (reserve
         // 4 leading header bytes and 1 trailing PEC byte).
         let body_wire_len: usize;
-        let body_decoded_len: usize;
         {
             let body_buf = &mut buffer[4..buffer_len - 1];
             let mut encoder = EncodingEncoder::<Self::Encoding>::new(body_buf);
             message_writer(&mut encoder)?;
             body_wire_len = encoder.wire_position();
-            body_decoded_len = encoder.decoded_count();
         }
 
         // with the body has been written, construct the header. byte_count
-        // is the DECODED count per SMBus convention.
+        // is the number of wire bytes that follow on the line per SMBus
+        // (PassthroughEncoding pairing means wire byte count == decoded
+        // byte count for SMBus today).
         let header = SmbusEspiMediumHeader {
             destination_slave_address: reply_context.source_slave_address,
             source_slave_address: reply_context.destination_slave_address,
-            byte_count: body_decoded_len as u8,
+            byte_count: body_wire_len as u8,
             command_code: SmbusCommandCode::Mctp,
             ..Default::default()
         };

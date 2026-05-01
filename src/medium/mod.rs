@@ -42,8 +42,7 @@ pub trait MctpMedium: Sized {
     /// through an [`EncodingEncoder`]. The medium owns its outer framing
     /// (e.g., SMBus header + PEC, DSP0253 start/end flags + FCS) and
     /// inspects the encoder's
-    /// [`wire_position`](EncodingEncoder::wire_position) /
-    /// [`decoded_count`](EncodingEncoder::decoded_count) after the
+    /// [`wire_position`](EncodingEncoder::wire_position) after the
     /// closure returns to size headers/trailers and compute checksums.
     fn serialize<'buf, F>(
         &self,
