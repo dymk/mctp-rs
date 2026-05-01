@@ -8,21 +8,8 @@
 //! [`BufferEncoding`] is the byte-stuffing layer ONLY. It is stateless:
 //! [`write_byte`](BufferEncoding::write_byte) and
 //! [`read_byte`](BufferEncoding::read_byte) are associated functions with
-//! no `self` and no struct state. The caller manages all cursors into the
-//! buffer they own.
-//!
-//! Higher-level framing concerns — start/end delimiters, FCS / CRC
-//! computation — are NOT part of this trait. They live on the medium
-//! type itself (e.g., `MctpSerialMedium::decode_frame_in_place` in a
-//! later phase) which can use `BufferEncoding` for the byte-stuffing
-//! step while owning the framing logic separately.
-//!
-//! Single-buffer in-place transformation is the design intent. For
-//! decode, escape sequences shrink (2 wire bytes → 1 payload byte) so a
-//! caller can read with one cursor and write back into the same buffer
-//! with a lagging write cursor. For encode, escape sequences grow, so
-//! the caller either uses a separate output buffer or pre-shifts the
-//! payload — that choreography is the caller's job, not this trait's.
+//! no `self` and no struct state. Higher-level framing concerns
+//! (start/end delimiters, FCS / CRC) live on the medium type, not here.
 
 use core::marker::PhantomData;
 
@@ -43,7 +30,8 @@ pub enum DecodeError {
     PrematureEnd,
     /// An escape byte was followed by a byte not in the medium's
     /// accept-list (strict-XOR rule per RFC1662 §4.2 / DSP0253 §6.4).
-    /// The caller should reject the entire frame.
+    /// The caller should reject the entire frame. Currently unreachable;
+    /// produced only by stuffing encodings introduced in a later phase.
     InvalidEscape,
 }
 
@@ -91,17 +79,12 @@ impl BufferEncoding for PassthroughEncoding {
     }
 }
 
-/// Stateful cursor wrapper that reads decoded bytes from a wire buffer
-/// through a [`BufferEncoding`]. Constructed by an [`MctpMedium`]'s
-/// [`deserialize`](crate::medium::MctpMedium::deserialize) method and
-/// handed to higher layers (e.g., `parse_transport_header`, the payload
-/// copy loop in `MctpPacketContext`) so they cannot accidentally bypass
-/// the encoding by slicing the underlying buffer directly.
+/// Stateful cursor over a `&[u8]` wire buffer that reads decoded bytes
+/// through `E: BufferEncoding`. Constructed by [`MctpMedium::deserialize`]
+/// and handed to higher layers so they cannot bypass the encoding by
+/// slicing the underlying buffer directly.
 ///
-/// Holds two pieces of state: the borrowed wire buffer and a cursor
-/// (`wire_pos`) into it. The cursor advances by the per-call
-/// wire-bytes-consumed value returned by `E::read_byte` (1 for plain,
-/// ≥2 for an escape sequence).
+/// [`MctpMedium::deserialize`]: crate::medium::MctpMedium::deserialize
 pub struct EncodingDecoder<'buf, E: BufferEncoding> {
     buf: &'buf [u8],
     wire_pos: usize,
@@ -129,14 +112,12 @@ impl<'buf, E: BufferEncoding> EncodingDecoder<'buf, E> {
     }
 }
 
-/// Stateful cursor wrapper that writes decoded bytes into a wire buffer
-/// through a [`BufferEncoding`]. Constructed by an [`MctpMedium`]'s
-/// [`serialize`](crate::medium::MctpMedium::serialize) method and passed
-/// into the caller's `message_writer` closure so the closure cannot
-/// accidentally bypass the encoding.
+/// Stateful cursor over a `&mut [u8]` wire buffer that writes decoded
+/// bytes through `E: BufferEncoding`. Constructed by
+/// [`MctpMedium::serialize`] and handed to the caller's `message_writer`
+/// closure so the closure cannot bypass the encoding.
 ///
-/// Tracks `wire_pos` (cursor into the underlying buffer, advances by
-/// the wire-bytes-written value returned by `E::write_byte`).
+/// [`MctpMedium::serialize`]: crate::medium::MctpMedium::serialize
 pub struct EncodingEncoder<'buf, E: BufferEncoding> {
     buf: &'buf mut [u8],
     wire_pos: usize,
