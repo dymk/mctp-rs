@@ -114,31 +114,27 @@ impl<'buf, M: MctpMedium> MctpPacketContext<'buf, M> {
             ));
         }
         let packet_size = packet_size - 4; // to account for the transport header
-        if packet.len() < packet_size {
-            return Err(MctpPacketError::HeaderParseError(
-                "packet.len() < packet_size",
-            ));
-        }
-        // Check bounds to prevent buffer overflow
+        // Check assembly buffer bounds (decoded bytes destination)
         if buffer_idx + packet_size > self.packet_assembly_buffer.len() {
             return Err(MctpPacketError::HeaderParseError(
                 "packet assembly buffer overflow - insufficient space",
             ));
         }
         // Decode `packet_size` payload bytes from the (possibly stuffed) wire
-        // buffer into the assembly buffer one byte at a time. For
-        // PassthroughEncoding this is observably equivalent to copy_from_slice;
-        // for stuffing encodings, wire bytes consumed per decoded byte is variable.
+        // buffer into the assembly buffer one byte at a time. We do NOT
+        // pre-check `packet.len() < packet_size` because for stuffing encodings
+        // wire length is not decoded length. PrematureEnd from read_byte is
+        // the canonical "ran out of bytes while decoding the body" signal.
         let mut wire_cursor = 0;
         for i in 0..packet_size {
             let (byte, n) = <M::Encoding as BufferEncoding>::read_byte(&packet[wire_cursor..])
                 .map_err(|e| match e {
-                    DecodeError::PrematureEnd => {
-                        MctpPacketError::HeaderParseError("encoding: premature end of buffer")
-                    }
-                    DecodeError::InvalidEscape => {
-                        MctpPacketError::HeaderParseError("encoding: invalid escape sequence")
-                    }
+                    DecodeError::PrematureEnd => MctpPacketError::HeaderParseError(
+                        "packet body too short to extract expected decoded bytes",
+                    ),
+                    DecodeError::InvalidEscape => MctpPacketError::HeaderParseError(
+                        "Invalid encoding escape sequence in packet body",
+                    ),
                 })?;
             self.packet_assembly_buffer[buffer_idx + i] = byte;
             wire_cursor += n;
