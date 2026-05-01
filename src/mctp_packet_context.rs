@@ -1,7 +1,6 @@
 use crate::{
     MctpMessage, MctpMessageHeaderTrait, MctpMessageTrait, MctpPacketError,
-    buffer_encoding::DecodeError,
-    deserialize::{parse_message_body, parse_transport_header},
+    deserialize::{map_decode_err, parse_message_body, parse_transport_header},
     endpoint_id::EndpointId,
     error::{MctpPacketResult, ProtocolError},
     mctp_message_tag::MctpMessageTag,
@@ -128,13 +127,12 @@ impl<'buf, M: MctpMedium> MctpPacketContext<'buf, M> {
         // `read()` is the canonical "ran out of bytes while decoding the
         // body" signal.
         for i in 0..packet_size {
-            self.packet_assembly_buffer[buffer_idx + i] = decoder.read().map_err(|e| match e {
-                DecodeError::PrematureEnd => MctpPacketError::HeaderParseError(
+            self.packet_assembly_buffer[buffer_idx + i] = decoder.read().map_err(|e| {
+                map_decode_err::<M>(
+                    e,
                     "packet body too short to extract expected decoded bytes",
-                ),
-                DecodeError::InvalidEscape => MctpPacketError::HeaderParseError(
                     "Invalid encoding escape sequence in packet body",
-                ),
+                )
             })?;
         }
         state.packet_assembly_buffer_index += packet_size;

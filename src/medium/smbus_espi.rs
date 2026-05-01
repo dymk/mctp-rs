@@ -194,9 +194,7 @@ mod tests {
 
     /// Test-only helper: drain an `EncodingDecoder` to a `Vec<u8>` for
     /// content assertions. Stops at the first error (e.g., `PrematureEnd`).
-    fn drain_to_vec<E: crate::buffer_encoding::BufferEncoding>(
-        decoder: &mut crate::buffer_encoding::EncodingDecoder<'_, E>,
-    ) -> Vec<u8> {
+    fn drain_to_vec(decoder: &mut EncodingDecoder<'_, PassthroughEncoding>) -> Vec<u8> {
         let mut out = Vec::new();
         while let Ok(b) = decoder.read() {
             out.push(b);

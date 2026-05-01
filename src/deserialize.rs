@@ -6,6 +6,17 @@ use crate::{
     medium::MctpMedium,
 };
 
+pub(crate) fn map_decode_err<M: MctpMedium>(
+    e: DecodeError,
+    on_premature: &'static str,
+    on_escape: &'static str,
+) -> MctpPacketError<M> {
+    match e {
+        DecodeError::PrematureEnd => MctpPacketError::HeaderParseError(on_premature),
+        DecodeError::InvalidEscape => MctpPacketError::HeaderParseError(on_escape),
+    }
+}
+
 pub(crate) fn parse_transport_header<M: MctpMedium>(
     decoder: &mut EncodingDecoder<'_, M::Encoding>,
 ) -> MctpPacketResult<MctpTransportHeader, M> {
@@ -18,13 +29,12 @@ pub(crate) fn parse_transport_header<M: MctpMedium>(
     // bytes).
     let mut header_bytes = [0u8; 4];
     for slot in header_bytes.iter_mut() {
-        *slot = decoder.read().map_err(|e| match e {
-            DecodeError::PrematureEnd => MctpPacketError::HeaderParseError(
+        *slot = decoder.read().map_err(|e| {
+            map_decode_err::<M>(
+                e,
                 "Packet is too small, cannot parse transport header",
-            ),
-            DecodeError::InvalidEscape => MctpPacketError::HeaderParseError(
                 "Invalid encoding escape sequence in transport header",
-            ),
+            )
         })?;
     }
     let transport_header_value = u32::from_be_bytes(header_bytes);

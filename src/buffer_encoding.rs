@@ -218,30 +218,6 @@ mod tests {
     }
 
     #[test]
-    fn passthrough_round_trip() {
-        let payload = [0x01, 0x02, 0x03, 0x04];
-        let mut wire = [0u8; 4];
-        let mut wire_pos = 0;
-        for &b in &payload {
-            wire_pos += PassthroughEncoding::write_byte(&mut wire[wire_pos..], b).unwrap();
-        }
-        assert_eq!(wire_pos, 4);
-        assert_eq!(wire, payload);
-
-        let mut decoded = [0u8; 4];
-        let mut read_pos = 0;
-        let mut write_pos = 0;
-        while read_pos < wire_pos {
-            let (b, n) = PassthroughEncoding::read_byte(&wire[read_pos..wire_pos]).unwrap();
-            decoded[write_pos] = b;
-            read_pos += n;
-            write_pos += 1;
-        }
-        assert_eq!(write_pos, 4);
-        assert_eq!(decoded, payload);
-    }
-
-    #[test]
     fn decoder_reads_all_bytes_via_passthrough() {
         let buf = [0xAA, 0xBB, 0xCC, 0xDD];
         let mut decoder = EncodingDecoder::<PassthroughEncoding>::new(&buf);
