@@ -1,6 +1,6 @@
 use crate::{
     MctpMessage, MctpMessageHeaderTrait, MctpMessageTrait, MctpPacketError,
-    buffer_encoding::{BufferEncoding, DecodeError},
+    buffer_encoding::DecodeError,
     deserialize::{parse_message_body, parse_transport_header},
     endpoint_id::EndpointId,
     error::{MctpPacketResult, ProtocolError},
@@ -44,8 +44,8 @@ impl<'buf, M: MctpMedium> MctpPacketContext<'buf, M> {
         &mut self,
         packet: &[u8],
     ) -> MctpPacketResult<Option<MctpMessage<'_, M>>, M> {
-        let (medium_frame, packet) = self.medium.deserialize(packet)?;
-        let (transport_header, packet) = parse_transport_header::<M>(packet)?;
+        let (medium_frame, mut decoder) = self.medium.deserialize(packet)?;
+        let transport_header = parse_transport_header::<M>(&mut decoder)?;
 
         let mut state = match self.assembly_state {
             AssemblyState::Idle => {
@@ -121,23 +121,21 @@ impl<'buf, M: MctpMedium> MctpPacketContext<'buf, M> {
             ));
         }
         // Decode `packet_size` payload bytes from the (possibly stuffed) wire
-        // buffer into the assembly buffer one byte at a time. We do NOT
-        // pre-check `packet.len() < packet_size` because for stuffing encodings
-        // wire length is not decoded length. PrematureEnd from read_byte is
-        // the canonical "ran out of bytes while decoding the body" signal.
-        let mut wire_cursor = 0;
+        // buffer into the assembly buffer one byte at a time via the
+        // medium-supplied decoder. We do NOT pre-check
+        // `decoder.remaining_wire() < packet_size` because for stuffing
+        // encodings wire length is not decoded length; PrematureEnd from
+        // `read()` is the canonical "ran out of bytes while decoding the
+        // body" signal.
         for i in 0..packet_size {
-            let (byte, n) = <M::Encoding as BufferEncoding>::read_byte(&packet[wire_cursor..])
-                .map_err(|e| match e {
-                    DecodeError::PrematureEnd => MctpPacketError::HeaderParseError(
-                        "packet body too short to extract expected decoded bytes",
-                    ),
-                    DecodeError::InvalidEscape => MctpPacketError::HeaderParseError(
-                        "Invalid encoding escape sequence in packet body",
-                    ),
-                })?;
-            self.packet_assembly_buffer[buffer_idx + i] = byte;
-            wire_cursor += n;
+            self.packet_assembly_buffer[buffer_idx + i] = decoder.read().map_err(|e| match e {
+                DecodeError::PrematureEnd => MctpPacketError::HeaderParseError(
+                    "packet body too short to extract expected decoded bytes",
+                ),
+                DecodeError::InvalidEscape => MctpPacketError::HeaderParseError(
+                    "Invalid encoding escape sequence in packet body",
+                ),
+            })?;
         }
         state.packet_assembly_buffer_index += packet_size;
 

@@ -1,6 +1,6 @@
 use crate::{
     MctpPacketError,
-    buffer_encoding::{BufferEncoding, EncodeError},
+    buffer_encoding::{EncodeError, EncodingEncoder},
     error::MctpPacketResult,
     mctp_packet_context::MctpReplyContext,
     mctp_transport_header::MctpTransportHeader,
@@ -29,8 +29,11 @@ impl<'buf, M: MctpMedium> SerializePacketState<'buf, M> {
         let packet = self.medium.serialize(
             self.reply_context.medium_context,
             self.assembly_buffer,
-            |buffer: &mut [u8]| {
-                let max_packet_size = self.medium.max_message_body_size().min(buffer.len());
+            |encoder: &mut EncodingEncoder<'_, M::Encoding>| {
+                let max_packet_size = self
+                    .medium
+                    .max_message_body_size()
+                    .min(encoder.remaining_wire());
                 if max_packet_size < TRANSPORT_HEADER_SIZE {
                     return Err(MctpPacketError::SerializeError(
                         "assembly buffer too small for mctp transport header",
@@ -69,32 +72,22 @@ impl<'buf, M: MctpMedium> SerializePacketState<'buf, M> {
                 .try_into()
                 .map_err(MctpPacketError::SerializeError)?;
 
-                // write the transport header and message body via the medium's
-                // BufferEncoding. For PassthroughEncoding each call writes 1
-                // wire byte; for stuffing encodings each call may emit >1.
-                let mut wire_cursor = 0;
+                // write the transport header and message body via the
+                // medium-supplied encoder. For PassthroughEncoding each
+                // `write` consumes 1 wire byte; for stuffing encodings each
+                // call may emit >1.
                 let map_encode_err = |e: EncodeError| match e {
                     EncodeError::BufferFull => {
                         MctpPacketError::SerializeError("encoding: buffer full")
                     }
                 };
                 for byte in transport_header.to_be_bytes() {
-                    let n = <M::Encoding as BufferEncoding>::write_byte(
-                        &mut buffer[wire_cursor..],
-                        byte,
-                    )
-                    .map_err(map_encode_err)?;
-                    wire_cursor += n;
+                    encoder.write(byte).map_err(map_encode_err)?;
                 }
                 for &byte in body {
-                    let n = <M::Encoding as BufferEncoding>::write_byte(
-                        &mut buffer[wire_cursor..],
-                        byte,
-                    )
-                    .map_err(map_encode_err)?;
-                    wire_cursor += n;
+                    encoder.write(byte).map_err(map_encode_err)?;
                 }
-                Ok(wire_cursor)
+                Ok(())
             },
         );
 
