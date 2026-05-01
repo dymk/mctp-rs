@@ -1,4 +1,7 @@
-use crate::{buffer_encoding::BufferEncoding, error::MctpPacketResult};
+use crate::{
+    buffer_encoding::{BufferEncoding, EncodingDecoder, EncodingEncoder},
+    error::MctpPacketResult,
+};
 
 pub mod smbus_espi;
 mod util;
@@ -23,14 +26,25 @@ pub trait MctpMedium: Sized {
     /// the maximum transmission unit for the medium
     fn max_message_body_size(&self) -> usize;
 
-    /// deserialize the packet into the medium specific header and remainder of the packet -
-    /// this includes the mctp transport header, and mctp packet payload
+    /// Deserialize a packet into the medium-specific header (frame) and an
+    /// [`EncodingDecoder`] that wraps the inner stuffed-region bytes.
+    /// Higher layers (e.g., `parse_transport_header`, the payload copy
+    /// loop in `MctpPacketContext`) read decoded bytes through the
+    /// returned decoder and physically cannot bypass the medium's
+    /// encoding by slicing the underlying buffer directly.
     fn deserialize<'buf>(
         &self,
         packet: &'buf [u8],
-    ) -> MctpPacketResult<(Self::Frame, &'buf [u8]), Self>;
+    ) -> MctpPacketResult<(Self::Frame, EncodingDecoder<'buf, Self::Encoding>), Self>;
 
-    /// serialize the packet into the medium specific header and the payload
+    /// Serialize a packet by allowing the caller's `message_writer`
+    /// closure to write decoded bytes into the medium's stuffed region
+    /// through an [`EncodingEncoder`]. The medium owns its outer framing
+    /// (e.g., SMBus header + PEC, DSP0253 start/end flags + FCS) and
+    /// inspects the encoder's
+    /// [`wire_position`](EncodingEncoder::wire_position) /
+    /// [`decoded_count`](EncodingEncoder::decoded_count) after the
+    /// closure returns to size headers/trailers and compute checksums.
     fn serialize<'buf, F>(
         &self,
         reply_context: Self::ReplyContext,
@@ -38,7 +52,7 @@ pub trait MctpMedium: Sized {
         message_writer: F,
     ) -> MctpPacketResult<&'buf [u8], Self>
     where
-        F: for<'a> FnOnce(&'a mut [u8]) -> MctpPacketResult<usize, Self>;
+        F: for<'a> FnOnce(&mut EncodingEncoder<'a, Self::Encoding>) -> MctpPacketResult<(), Self>;
 }
 
 pub trait MctpMediumFrame<M: MctpMedium>: Clone + Copy {

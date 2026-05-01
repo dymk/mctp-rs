@@ -89,6 +89,147 @@ impl BufferEncoding for PassthroughEncoding {
     }
 }
 
+/// Stateful cursor wrapper that reads decoded bytes from a wire buffer
+/// through a [`BufferEncoding`]. Constructed by an [`MctpMedium`]'s
+/// [`deserialize`](crate::medium::MctpMedium::deserialize) method and
+/// handed to higher layers (e.g., `parse_transport_header`, the payload
+/// copy loop in `MctpPacketContext`) so they cannot accidentally bypass
+/// the encoding by slicing the underlying buffer directly.
+///
+/// Holds three pieces of state: the borrowed wire buffer, a cursor
+/// (`wire_pos`) into it, and a count of decoded bytes emitted so far.
+/// The cursor advances by the per-call wire-bytes-consumed value
+/// returned by `E::read_byte` (1 for plain, ≥2 for an escape sequence).
+pub struct EncodingDecoder<'buf, E: BufferEncoding> {
+    buf: &'buf [u8],
+    wire_pos: usize,
+    decoded_count: usize,
+    _phantom: core::marker::PhantomData<E>,
+}
+
+impl<'buf, E: BufferEncoding> EncodingDecoder<'buf, E> {
+    /// Wrap a wire-byte buffer for stateful encoding-mediated reads.
+    pub fn new(buf: &'buf [u8]) -> Self {
+        Self {
+            buf,
+            wire_pos: 0,
+            decoded_count: 0,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+
+    /// Read one decoded byte. Advances the wire cursor by the encoding's
+    /// per-byte wire footprint. Returns `DecodeError::PrematureEnd` when
+    /// the wire buffer is exhausted (or ends mid-escape) and
+    /// `DecodeError::InvalidEscape` for malformed escape sequences.
+    pub fn read(&mut self) -> Result<u8, DecodeError> {
+        let (byte, n) = E::read_byte(&self.buf[self.wire_pos..])?;
+        self.wire_pos += n;
+        self.decoded_count += 1;
+        Ok(byte)
+    }
+
+    /// Wire bytes consumed so far.
+    pub fn wire_position(&self) -> usize {
+        self.wire_pos
+    }
+
+    /// Decoded bytes emitted so far.
+    pub fn decoded_count(&self) -> usize {
+        self.decoded_count
+    }
+
+    /// Wire bytes remaining in the underlying buffer.
+    pub fn remaining_wire(&self) -> usize {
+        self.buf.len() - self.wire_pos
+    }
+}
+
+impl<E: BufferEncoding> core::fmt::Debug for EncodingDecoder<'_, E> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("EncodingDecoder")
+            .field("wire_pos", &self.wire_pos)
+            .field("decoded_count", &self.decoded_count)
+            .field("buf_len", &self.buf.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Stateful cursor wrapper that writes decoded bytes into a wire buffer
+/// through a [`BufferEncoding`]. Constructed by an [`MctpMedium`]'s
+/// [`serialize`](crate::medium::MctpMedium::serialize) method and passed
+/// into the caller's `message_writer` closure so the closure cannot
+/// accidentally bypass the encoding.
+///
+/// Tracks both `wire_pos` (cursor into the underlying buffer, advances by
+/// the wire-bytes-written value returned by `E::write_byte`) and
+/// `decoded_count` (number of logical payload bytes written so far,
+/// useful for medium headers that record decoded byte counts —
+/// e.g., DSP0253 `byte_count`).
+pub struct EncodingEncoder<'buf, E: BufferEncoding> {
+    buf: &'buf mut [u8],
+    wire_pos: usize,
+    decoded_count: usize,
+    _phantom: core::marker::PhantomData<E>,
+}
+
+impl<'buf, E: BufferEncoding> EncodingEncoder<'buf, E> {
+    /// Wrap a wire-byte buffer for stateful encoding-mediated writes.
+    pub fn new(buf: &'buf mut [u8]) -> Self {
+        Self {
+            buf,
+            wire_pos: 0,
+            decoded_count: 0,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+
+    /// Write one decoded byte. Advances the wire cursor by the encoding's
+    /// per-byte wire footprint. Returns `EncodeError::BufferFull` when
+    /// the underlying wire buffer cannot fit the encoded representation.
+    pub fn write(&mut self, byte: u8) -> Result<(), EncodeError> {
+        let n = E::write_byte(&mut self.buf[self.wire_pos..], byte)?;
+        self.wire_pos += n;
+        self.decoded_count += 1;
+        Ok(())
+    }
+
+    /// Write a contiguous slice of decoded bytes; aborts on the first
+    /// encode error. Equivalent to a `for &b in bytes { self.write(b)? }`
+    /// loop, but more concise at call sites that just splat a byte slice.
+    pub fn write_all(&mut self, bytes: &[u8]) -> Result<(), EncodeError> {
+        for &b in bytes {
+            self.write(b)?;
+        }
+        Ok(())
+    }
+
+    /// Wire bytes written so far (the size of the produced wire frame).
+    pub fn wire_position(&self) -> usize {
+        self.wire_pos
+    }
+
+    /// Decoded (logical) bytes written so far.
+    pub fn decoded_count(&self) -> usize {
+        self.decoded_count
+    }
+
+    /// Wire bytes remaining in the underlying buffer.
+    pub fn remaining_wire(&self) -> usize {
+        self.buf.len() - self.wire_pos
+    }
+}
+
+impl<E: BufferEncoding> core::fmt::Debug for EncodingEncoder<'_, E> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("EncodingEncoder")
+            .field("wire_pos", &self.wire_pos)
+            .field("decoded_count", &self.decoded_count)
+            .field("buf_len", &self.buf.len())
+            .finish_non_exhaustive()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,5 +286,42 @@ mod tests {
         }
         assert_eq!(write_pos, 4);
         assert_eq!(decoded, payload);
+    }
+
+    #[test]
+    fn decoder_reads_all_bytes_via_passthrough() {
+        let buf = [0xAA, 0xBB, 0xCC, 0xDD];
+        let mut decoder = EncodingDecoder::<PassthroughEncoding>::new(&buf);
+        assert_eq!(decoder.wire_position(), 0);
+        assert_eq!(decoder.decoded_count(), 0);
+        assert_eq!(decoder.remaining_wire(), 4);
+        assert_eq!(decoder.read().unwrap(), 0xAA);
+        assert_eq!(decoder.read().unwrap(), 0xBB);
+        assert_eq!(decoder.read().unwrap(), 0xCC);
+        assert_eq!(decoder.read().unwrap(), 0xDD);
+        assert_eq!(decoder.wire_position(), 4);
+        assert_eq!(decoder.decoded_count(), 4);
+        assert_eq!(decoder.remaining_wire(), 0);
+        assert_eq!(decoder.read().unwrap_err(), DecodeError::PrematureEnd);
+    }
+
+    #[test]
+    fn encoder_writes_all_bytes_via_passthrough() {
+        let mut buf = [0u8; 4];
+        {
+            let mut encoder = EncodingEncoder::<PassthroughEncoding>::new(&mut buf);
+            assert_eq!(encoder.wire_position(), 0);
+            assert_eq!(encoder.decoded_count(), 0);
+            assert_eq!(encoder.remaining_wire(), 4);
+            encoder.write(0x11).unwrap();
+            encoder.write(0x22).unwrap();
+            encoder.write(0x33).unwrap();
+            encoder.write(0x44).unwrap();
+            assert_eq!(encoder.wire_position(), 4);
+            assert_eq!(encoder.decoded_count(), 4);
+            assert_eq!(encoder.remaining_wire(), 0);
+            assert_eq!(encoder.write(0x55).unwrap_err(), EncodeError::BufferFull);
+        }
+        assert_eq!(buf, [0x11, 0x22, 0x33, 0x44]);
     }
 }
