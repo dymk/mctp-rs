@@ -24,6 +24,8 @@
 //! the caller either uses a separate output buffer or pre-shifts the
 //! payload — that choreography is the caller's job, not this trait's.
 
+use core::marker::PhantomData;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum EncodeError {
@@ -103,7 +105,7 @@ impl BufferEncoding for PassthroughEncoding {
 pub struct EncodingDecoder<'buf, E: BufferEncoding> {
     buf: &'buf [u8],
     wire_pos: usize,
-    _phantom: core::marker::PhantomData<E>,
+    _phantom: PhantomData<E>,
 }
 
 impl<'buf, E: BufferEncoding> EncodingDecoder<'buf, E> {
@@ -112,7 +114,7 @@ impl<'buf, E: BufferEncoding> EncodingDecoder<'buf, E> {
         Self {
             buf,
             wire_pos: 0,
-            _phantom: core::marker::PhantomData,
+            _phantom: PhantomData,
         }
     }
 
@@ -124,25 +126,6 @@ impl<'buf, E: BufferEncoding> EncodingDecoder<'buf, E> {
         let (byte, n) = E::read_byte(&self.buf[self.wire_pos..])?;
         self.wire_pos += n;
         Ok(byte)
-    }
-
-    /// Wire bytes consumed so far.
-    pub fn wire_position(&self) -> usize {
-        self.wire_pos
-    }
-
-    /// Wire bytes remaining in the underlying buffer.
-    pub fn remaining_wire(&self) -> usize {
-        self.buf.len() - self.wire_pos
-    }
-}
-
-impl<E: BufferEncoding> core::fmt::Debug for EncodingDecoder<'_, E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("EncodingDecoder")
-            .field("wire_pos", &self.wire_pos)
-            .field("buf_len", &self.buf.len())
-            .finish_non_exhaustive()
     }
 }
 
@@ -157,7 +140,7 @@ impl<E: BufferEncoding> core::fmt::Debug for EncodingDecoder<'_, E> {
 pub struct EncodingEncoder<'buf, E: BufferEncoding> {
     buf: &'buf mut [u8],
     wire_pos: usize,
-    _phantom: core::marker::PhantomData<E>,
+    _phantom: PhantomData<E>,
 }
 
 impl<'buf, E: BufferEncoding> EncodingEncoder<'buf, E> {
@@ -166,7 +149,7 @@ impl<'buf, E: BufferEncoding> EncodingEncoder<'buf, E> {
         Self {
             buf,
             wire_pos: 0,
-            _phantom: core::marker::PhantomData,
+            _phantom: PhantomData,
         }
     }
 
@@ -197,15 +180,6 @@ impl<'buf, E: BufferEncoding> EncodingEncoder<'buf, E> {
     /// Wire bytes remaining in the underlying buffer.
     pub fn remaining_wire(&self) -> usize {
         self.buf.len() - self.wire_pos
-    }
-}
-
-impl<E: BufferEncoding> core::fmt::Debug for EncodingEncoder<'_, E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("EncodingEncoder")
-            .field("wire_pos", &self.wire_pos)
-            .field("buf_len", &self.buf.len())
-            .finish_non_exhaustive()
     }
 }
 
@@ -271,14 +245,10 @@ mod tests {
     fn decoder_reads_all_bytes_via_passthrough() {
         let buf = [0xAA, 0xBB, 0xCC, 0xDD];
         let mut decoder = EncodingDecoder::<PassthroughEncoding>::new(&buf);
-        assert_eq!(decoder.wire_position(), 0);
-        assert_eq!(decoder.remaining_wire(), 4);
         assert_eq!(decoder.read().unwrap(), 0xAA);
         assert_eq!(decoder.read().unwrap(), 0xBB);
         assert_eq!(decoder.read().unwrap(), 0xCC);
         assert_eq!(decoder.read().unwrap(), 0xDD);
-        assert_eq!(decoder.wire_position(), 4);
-        assert_eq!(decoder.remaining_wire(), 0);
         assert_eq!(decoder.read().unwrap_err(), DecodeError::PrematureEnd);
     }
 

@@ -176,8 +176,7 @@ mod serialize;
 mod test_util;
 
 pub use buffer_encoding::{
-    BufferEncoding, DecodeError as BufferDecodeError, EncodeError as BufferEncodeError,
-    EncodingDecoder, EncodingEncoder, PassthroughEncoding,
+    BufferEncoding, DecodeError, EncodeError, EncodingDecoder, EncodingEncoder, PassthroughEncoding,
 };
 pub use endpoint_id::EndpointId;
 pub use error::{MctpPacketError, MctpPacketResult};

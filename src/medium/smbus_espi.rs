@@ -191,6 +191,7 @@ mod tests {
     use std::vec::Vec;
 
     use super::*;
+    use crate::buffer_encoding::DecodeError;
 
     /// Test-only helper: drain an `EncodingDecoder` to a `Vec<u8>` for
     /// content assertions. Stops at the first error (e.g., `PrematureEnd`).
@@ -322,11 +323,11 @@ mod tests {
         packet[4] = pec;
 
         let result = medium.deserialize(&packet).unwrap();
-        let (frame, decoder) = result;
+        let (frame, mut decoder) = result;
 
         assert_eq!(frame.header.byte_count, 0);
         assert_eq!(frame.pec, pec);
-        assert_eq!(decoder.remaining_wire(), 0);
+        assert_eq!(decoder.read().unwrap_err(), DecodeError::PrematureEnd);
     }
 
     #[test]
