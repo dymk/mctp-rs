@@ -1,5 +1,6 @@
 use crate::{
     MctpMessage, MctpMessageHeaderTrait, MctpMessageTrait, MctpPacketError,
+    buffer_encoding::{BufferEncoding, DecodeError},
     deserialize::{parse_message_body, parse_transport_header},
     endpoint_id::EndpointId,
     error::{MctpPacketResult, ProtocolError},
@@ -124,8 +125,24 @@ impl<'buf, M: MctpMedium> MctpPacketContext<'buf, M> {
                 "packet assembly buffer overflow - insufficient space",
             ));
         }
-        self.packet_assembly_buffer[buffer_idx..buffer_idx + packet_size]
-            .copy_from_slice(&packet[..packet_size]);
+        // Decode `packet_size` payload bytes from the (possibly stuffed) wire
+        // buffer into the assembly buffer one byte at a time. For
+        // PassthroughEncoding this is observably equivalent to copy_from_slice;
+        // for stuffing encodings, wire bytes consumed per decoded byte is variable.
+        let mut wire_cursor = 0;
+        for i in 0..packet_size {
+            let (byte, n) = <M::Encoding as BufferEncoding>::read_byte(&packet[wire_cursor..])
+                .map_err(|e| match e {
+                    DecodeError::PrematureEnd => {
+                        MctpPacketError::HeaderParseError("encoding: premature end of buffer")
+                    }
+                    DecodeError::InvalidEscape => {
+                        MctpPacketError::HeaderParseError("encoding: invalid escape sequence")
+                    }
+                })?;
+            self.packet_assembly_buffer[buffer_idx + i] = byte;
+            wire_cursor += n;
+        }
         state.packet_assembly_buffer_index += packet_size;
 
         let message = if transport_header.end_of_message == 1 {

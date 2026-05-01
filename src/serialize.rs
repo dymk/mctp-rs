@@ -1,6 +1,10 @@
 use crate::{
-    MctpPacketError, error::MctpPacketResult, mctp_packet_context::MctpReplyContext,
-    mctp_transport_header::MctpTransportHeader, medium::MctpMedium,
+    MctpPacketError,
+    buffer_encoding::{BufferEncoding, EncodeError},
+    error::MctpPacketResult,
+    mctp_packet_context::MctpReplyContext,
+    mctp_transport_header::MctpTransportHeader,
+    medium::MctpMedium,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -65,14 +69,32 @@ impl<'buf, M: MctpMedium> SerializePacketState<'buf, M> {
                 .try_into()
                 .map_err(MctpPacketError::SerializeError)?;
 
-                // write the transport header and message body
-                let mut cursor = 0;
-                buffer[cursor..cursor + TRANSPORT_HEADER_SIZE]
-                    .copy_from_slice(&transport_header.to_be_bytes());
-                cursor += TRANSPORT_HEADER_SIZE;
-                // message body is the rest of the buffer, up to the packet size
-                buffer[cursor..cursor + body.len()].copy_from_slice(body);
-                Ok(cursor + body.len())
+                // write the transport header and message body via the medium's
+                // BufferEncoding. For PassthroughEncoding each call writes 1
+                // wire byte; for stuffing encodings each call may emit >1.
+                let mut wire_cursor = 0;
+                let map_encode_err = |e: EncodeError| match e {
+                    EncodeError::BufferFull => {
+                        MctpPacketError::SerializeError("encoding: buffer full")
+                    }
+                };
+                for byte in transport_header.to_be_bytes() {
+                    let n = <M::Encoding as BufferEncoding>::write_byte(
+                        &mut buffer[wire_cursor..],
+                        byte,
+                    )
+                    .map_err(map_encode_err)?;
+                    wire_cursor += n;
+                }
+                for &byte in body {
+                    let n = <M::Encoding as BufferEncoding>::write_byte(
+                        &mut buffer[wire_cursor..],
+                        byte,
+                    )
+                    .map_err(map_encode_err)?;
+                    wire_cursor += n;
+                }
+                Ok(wire_cursor)
             },
         );
 
