@@ -88,13 +88,12 @@ impl MctpMedium for TestMedium {
 
         buffer[0..header_len].copy_from_slice(self.header);
 
-        let body_wire_len: usize;
-        {
+        let body_wire_len = {
             let body_buf = &mut buffer[header_len..header_len + max_message_size];
             let mut encoder = EncodingEncoder::<Self::Encoding>::new(body_buf);
             message_writer(&mut encoder)?;
-            body_wire_len = encoder.wire_position();
-        }
+            encoder.wire_position()
+        };
 
         let len = header_len + body_wire_len;
         buffer[len..len + trailer_len].copy_from_slice(self.trailer);

@@ -73,20 +73,16 @@ impl<'buf, M: MctpMedium> SerializePacketState<'buf, M> {
                 .map_err(MctpPacketError::SerializeError)?;
 
                 // write the transport header and message body via the
-                // medium-supplied encoder. For PassthroughEncoding each
-                // `write` consumes 1 wire byte; for stuffing encodings each
-                // call may emit >1.
+                // medium-supplied encoder.
                 let map_encode_err = |e: EncodeError| match e {
                     EncodeError::BufferFull => {
                         MctpPacketError::SerializeError("encoding: buffer full")
                     }
                 };
-                for byte in transport_header.to_be_bytes() {
-                    encoder.write(byte).map_err(map_encode_err)?;
-                }
-                for &byte in body {
-                    encoder.write(byte).map_err(map_encode_err)?;
-                }
+                encoder
+                    .write_all(&transport_header.to_be_bytes())
+                    .map_err(map_encode_err)?;
+                encoder.write_all(body).map_err(map_encode_err)?;
                 Ok(())
             },
         );

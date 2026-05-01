@@ -79,13 +79,12 @@ impl MctpMedium for SmbusEspiMedium {
 
         // Write the body first via an encoder over the body region (reserve
         // 4 leading header bytes and 1 trailing PEC byte).
-        let body_wire_len: usize;
-        {
+        let body_wire_len = {
             let body_buf = &mut buffer[4..buffer_len - 1];
             let mut encoder = EncodingEncoder::<Self::Encoding>::new(body_buf);
             message_writer(&mut encoder)?;
-            body_wire_len = encoder.wire_position();
-        }
+            encoder.wire_position()
+        };
 
         // with the body has been written, construct the header. byte_count
         // is the number of wire bytes that follow on the line per SMBus
