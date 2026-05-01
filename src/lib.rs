@@ -14,7 +14,7 @@
 //! # use mctp_rs::*;
 //! # #[derive(Debug, Clone, Copy)] struct MyMedium { mtu: usize }
 //! # #[derive(Debug, Clone, Copy)] struct MyMediumFrame { packet_size: usize }
-//! # impl MctpMedium for MyMedium { type Frame=MyMediumFrame; type Error=&'static str; type ReplyContext=();
+//! # impl MctpMedium for MyMedium { type Frame=MyMediumFrame; type Error=&'static str; type ReplyContext=(); type Encoding=PassthroughEncoding;
 //! #   fn max_message_body_size(&self)->usize{self.mtu}
 //! #   fn deserialize<'b>(&self,p:&'b [u8])->MctpPacketResult<(Self::Frame,&'b [u8]),Self>{Ok((MyMediumFrame{packet_size:p.len()},p))}
 //! #   fn serialize<'b,F>(&self,_:Self::ReplyContext,b:&'b mut [u8],w:F)->MctpPacketResult<&'b [u8],Self> where F: for<'a> FnOnce(&'a mut [u8])->MctpPacketResult<usize,Self>{let n=w(b)?;Ok(&b[..n])}}
@@ -59,7 +59,7 @@
 //! # use mctp_rs::*;
 //! # #[derive(Debug, Clone, Copy)] struct MyMedium { mtu: usize }
 //! # #[derive(Debug, Clone, Copy)] struct MyMediumFrame { packet_size: usize }
-//! # impl MctpMedium for MyMedium { type Frame=MyMediumFrame; type Error=&'static str; type ReplyContext=(); fn max_message_body_size(&self)->usize{self.mtu}
+//! # impl MctpMedium for MyMedium { type Frame=MyMediumFrame; type Error=&'static str; type ReplyContext=(); type Encoding=PassthroughEncoding; fn max_message_body_size(&self)->usize{self.mtu}
 //! #   fn deserialize<'b>(&self,p:&'b [u8])->MctpPacketResult<(Self::Frame,&'b [u8]),Self>{Ok((MyMediumFrame{packet_size:p.len()},p))}
 //! #   fn serialize<'b,F>(&self,_:Self::ReplyContext,b:&'b mut [u8],w:F)->MctpPacketResult<&'b [u8],Self> where F: for<'a> FnOnce(&'a mut [u8])->MctpPacketResult<usize,Self>{let n=w(b)?;Ok(&b[..n])}}
 //! # impl MctpMediumFrame<MyMedium> for MyMediumFrame { fn packet_size(&self)->usize{self.packet_size} fn reply_context(&self)->(){()}}
@@ -109,6 +109,7 @@
 //!     type Frame = MyMediumFrame;
 //!     type Error = &'static str;
 //!     type ReplyContext = ();
+//!     type Encoding = PassthroughEncoding;
 //!
 //!     fn max_message_body_size(&self) -> usize {
 //!         self.mtu
@@ -152,6 +153,7 @@
 //! }
 //! ```
 
+mod buffer_encoding;
 mod deserialize;
 mod endpoint_id;
 pub mod error;
@@ -167,6 +169,10 @@ mod serialize;
 #[cfg(test)]
 mod test_util;
 
+pub use buffer_encoding::{
+    BufferEncoding, DecodeError as BufferDecodeError, EncodeError as BufferEncodeError,
+    PassthroughEncoding,
+};
 pub use endpoint_id::EndpointId;
 pub use error::{MctpPacketError, MctpPacketResult};
 pub use mctp_message_tag::MctpMessageTag;

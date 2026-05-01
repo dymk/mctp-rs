@@ -1,4 +1,4 @@
-use crate::error::MctpPacketResult;
+use crate::{buffer_encoding::BufferEncoding, error::MctpPacketResult};
 
 pub mod smbus_espi;
 mod util;
@@ -12,6 +12,13 @@ pub trait MctpMedium: Sized {
 
     // the type used for the data needed to send a reply to a request
     type ReplyContext: core::fmt::Debug + Copy + Clone + PartialEq + Eq;
+
+    /// the byte-stuffing transform used by this medium when (de)serializing
+    /// wire bytes. Stateless — see [`crate::buffer_encoding`]. Most media
+    /// use [`PassthroughEncoding`](crate::buffer_encoding::PassthroughEncoding)
+    /// (no transform); media that need byte-stuffing (e.g., DSP0253 serial)
+    /// supply their own impl.
+    type Encoding: BufferEncoding;
 
     /// the maximum transmission unit for the medium
     fn max_message_body_size(&self) -> usize;
