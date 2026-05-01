@@ -24,6 +24,7 @@ impl MctpMedium for SmbusEspiMedium {
     type Frame = SmbusEspiMediumFrame;
     type Error = &'static str;
     type ReplyContext = SmbusEspiReplyContext;
+    type Encoding = crate::buffer_encoding::PassthroughEncoding;
 
     fn deserialize<'buf>(
         &self,

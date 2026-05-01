@@ -36,6 +36,7 @@ impl MctpMedium for TestMedium {
     type Frame = TestMediumFrame;
     type Error = &'static str;
     type ReplyContext = ();
+    type Encoding = crate::buffer_encoding::PassthroughEncoding;
 
     fn deserialize<'buf>(
         &self,
