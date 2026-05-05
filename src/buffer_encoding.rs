@@ -52,6 +52,12 @@ pub trait BufferEncoding {
     /// index 0. Returns `(decoded_byte, wire_bytes_consumed)`. The
     /// caller advances their read cursor by `wire_bytes_consumed`.
     fn read_byte(wire_buf: &[u8]) -> Result<(u8, usize), DecodeError>;
+
+    /// Wire-byte footprint of `decoded` under this encoding. Must equal
+    /// the sum of `write_byte(_, b)` lengths for each `b` in `decoded`.
+    /// NO default impl: every encoding declares its sizing rule
+    /// explicitly.
+    fn wire_size_of(decoded: &[u8]) -> usize;
 }
 
 /// No-op encoding: wire bytes ARE payload bytes. Used by media that do
@@ -76,6 +82,10 @@ impl BufferEncoding for PassthroughEncoding {
             Some(&byte) => Ok((byte, 1)),
             None => Err(DecodeError::PrematureEnd),
         }
+    }
+
+    fn wire_size_of(decoded: &[u8]) -> usize {
+        decoded.len()
     }
 }
 
@@ -225,5 +235,13 @@ mod tests {
             assert_eq!(encoder.write(0x55).unwrap_err(), EncodeError::BufferFull);
         }
         assert_eq!(buf, [0x11, 0x22, 0x33, 0x44]);
+    }
+
+    #[test]
+    fn passthrough_wire_size_of_returns_input_len() {
+        assert_eq!(PassthroughEncoding::wire_size_of(&[]), 0);
+        assert_eq!(PassthroughEncoding::wire_size_of(&[0xAB]), 1);
+        let buf = [0u8; 64];
+        assert_eq!(PassthroughEncoding::wire_size_of(&buf), 64);
     }
 }
