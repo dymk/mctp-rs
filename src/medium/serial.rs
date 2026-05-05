@@ -175,9 +175,11 @@ impl MctpMedium for MctpSerialMedium {
                         }
                     }
                 })?;
-            if b == END_FLAG {
-                // Bare 0x7E inside the body region is a protocol error
-                // (MEDIUM-05).
+            if b == END_FLAG && n == 1 {
+                // Bare (unstuffed) 0x7E inside the body region is a
+                // protocol error (MEDIUM-05). A decoded 0x7E whose wire
+                // representation was the stuffed pair `0x7D 0x5E`
+                // (n==2) is a legitimate payload byte and is kept.
                 return Err(MctpPacketError::MediumError("unexpected 0x7E in body"));
             }
             decoded[decoded_len] = b;
@@ -436,5 +438,236 @@ mod encoding_tests {
             assert_eq!(dec.read().unwrap(), expected);
         }
         assert_eq!(dec.read().unwrap_err(), DecodeError::PrematureEnd);
+    }
+}
+
+#[cfg(test)]
+mod fixtures {
+    //! Hand-authored DSP0253 serial frame fixtures (golden vectors).
+    //!
+    //! Layout per fixture (no leading flag — this implementation omits
+    //! the open `0x7E` per CONTEXT D-D-01; upstream UART layer supplies
+    //! it in Phase 27):
+    //!
+    //!   `[REVISION=0x01, byte_count, ...stuffed body..., ...stuffed FCS-MSB..., ...stuffed
+    //! FCS-LSB..., 0x7E]`
+    //!
+    //! - Header bytes (REVISION, byte_count) are NOT stuffed (matches production serialize).
+    //! - Body bytes are stuffed per `SerialEncoding`.
+    //! - FCS-16/X-25 computed over un-stuffed `[REVISION, byte_count, ...decoded body...]`, emitted
+    //!   MSB-first on wire (DSP0253 §5.2), each FCS byte then stuffed if equal to 0x7E or 0x7D.
+    //! - Trailing `0x7E` is the end-flag (not stuffed by definition).
+
+    pub(crate) const FIXTURE_BASIC_RX: &[u8] =
+        &[0x01, 0x04, 0xAA, 0xBB, 0xCC, 0xDD, 0x6D, 0xA1, 0x7E];
+
+    pub(crate) const FIXTURE_PAYLOAD_CONTAINS_7E: &[u8] =
+        &[0x01, 0x03, 0xAA, 0x7D, 0x5E, 0xCC, 0xFB, 0xE7, 0x7E];
+
+    pub(crate) const FIXTURE_PAYLOAD_CONTAINS_7D: &[u8] =
+        &[0x01, 0x03, 0xAA, 0x7D, 0x5D, 0xCC, 0xD1, 0x8F, 0x7E];
+
+    pub(crate) const FIXTURE_PAYLOAD_CONTAINS_BOTH: &[u8] =
+        &[0x01, 0x03, 0x7D, 0x5E, 0x7D, 0x5D, 0x42, 0x50, 0x97, 0x7E];
+
+    /// 251-byte body `(0..251)` decoded; wire = 258 bytes after stuffing
+    /// the lone 0x7D (idx 125) and 0x7E (idx 126) inside the body.
+    pub(crate) const FIXTURE_MAX_MTU_FRAME: &[u8] = &[
+        0x01, 0xFB, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
+        0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B,
+        0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A,
+        0x2B, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39,
+        0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48,
+        0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F, 0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57,
+        0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66,
+        0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75,
+        0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x5D, 0x7D, 0x5E, 0x7F, 0x80, 0x81, 0x82,
+        0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90, 0x91,
+        0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F, 0xA0,
+        0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF,
+        0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7, 0xB8, 0xB9, 0xBA, 0xBB, 0xBC, 0xBD, 0xBE,
+        0xBF, 0xC0, 0xC1, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xCB, 0xCC, 0xCD,
+        0xCE, 0xCF, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xDB, 0xDC,
+        0xDD, 0xDE, 0xDF, 0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xEB,
+        0xEC, 0xED, 0xEE, 0xEF, 0xF0, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA,
+        0xF6, 0x07, 0x7E,
+    ];
+
+    pub(crate) const FIXTURE_EMPTY_PAYLOAD: &[u8] = &[0x01, 0x00, 0x16, 0x9F, 0x7E];
+
+    pub(crate) const FIXTURE_FCS_VALID: &[u8] = &[0x01, 0x03, 0x10, 0x20, 0x30, 0x76, 0xDB, 0x7E];
+
+    /// Same body as FCS_VALID but FCS-MSB byte XOR 0xFF (0x76 -> 0x89).
+    pub(crate) const FIXTURE_FCS_INVALID: &[u8] = &[0x01, 0x03, 0x10, 0x20, 0x30, 0x89, 0xDB, 0x7E];
+
+    /// byte_count=2 claims 2 decoded bytes; first body wire byte is
+    /// `0x7D 0xAA` (escape followed by non-`{0x5E,0x5D}`) -> rejected
+    /// as "invalid escape in body" before reaching FCS.
+    pub(crate) const FIXTURE_INVALID_ESCAPE: &[u8] = &[0x01, 0x02, 0x7D, 0xAA, 0x00, 0x00, 0x7E];
+
+    /// byte_count=3, body wire region is `[0xAA, 0x7E, 0xCC]` — the
+    /// raw 0x7E inside the body region is rejected before FCS.
+    pub(crate) const FIXTURE_PREMATURE_END_FLAG: &[u8] =
+        &[0x01, 0x03, 0xAA, 0x7E, 0xCC, 0x00, 0x00, 0x7E];
+}
+
+#[cfg(test)]
+mod medium_tests {
+    use super::{fixtures::*, *};
+
+    fn drain_decoder(mut dec: EncodingDecoder<'_, SerialEncoding>) -> ([u8; CONST_MTU], usize) {
+        let mut out = [0u8; CONST_MTU];
+        let mut n = 0;
+        while let Ok(b) = dec.read() {
+            out[n] = b;
+            n += 1;
+        }
+        (out, n)
+    }
+
+    #[test]
+    fn decode_basic_rx_succeeds() {
+        let (frame, dec) = MctpSerialMedium.deserialize(FIXTURE_BASIC_RX).unwrap();
+        assert_eq!(frame.revision, 0x01);
+        assert_eq!(frame.byte_count, 4);
+        assert_eq!(frame.fcs, 0x6DA1);
+        let (decoded, n) = drain_decoder(dec);
+        assert_eq!(&decoded[..n], &[0xAA, 0xBB, 0xCC, 0xDD]);
+    }
+
+    #[test]
+    fn decode_payload_contains_7e() {
+        let (frame, dec) = MctpSerialMedium
+            .deserialize(FIXTURE_PAYLOAD_CONTAINS_7E)
+            .unwrap();
+        assert_eq!(frame.byte_count, 3);
+        let (decoded, n) = drain_decoder(dec);
+        assert_eq!(&decoded[..n], &[0xAA, 0x7E, 0xCC]);
+    }
+
+    #[test]
+    fn decode_payload_contains_7d() {
+        let (frame, dec) = MctpSerialMedium
+            .deserialize(FIXTURE_PAYLOAD_CONTAINS_7D)
+            .unwrap();
+        assert_eq!(frame.byte_count, 3);
+        let (decoded, n) = drain_decoder(dec);
+        assert_eq!(&decoded[..n], &[0xAA, 0x7D, 0xCC]);
+    }
+
+    #[test]
+    fn decode_payload_contains_both() {
+        let (frame, dec) = MctpSerialMedium
+            .deserialize(FIXTURE_PAYLOAD_CONTAINS_BOTH)
+            .unwrap();
+        assert_eq!(frame.byte_count, 3);
+        let (decoded, n) = drain_decoder(dec);
+        assert_eq!(&decoded[..n], &[0x7E, 0x7D, 0x42]);
+    }
+
+    #[test]
+    fn decode_max_mtu_frame() {
+        let (frame, dec) = MctpSerialMedium.deserialize(FIXTURE_MAX_MTU_FRAME).unwrap();
+        assert_eq!(frame.byte_count as usize, CONST_MTU);
+        let (decoded, n) = drain_decoder(dec);
+        assert_eq!(n, CONST_MTU);
+        for (i, &b) in decoded[..n].iter().enumerate() {
+            assert_eq!(b, i as u8, "mismatch at idx {i}");
+        }
+    }
+
+    #[test]
+    fn decode_empty_payload() {
+        let (frame, dec) = MctpSerialMedium.deserialize(FIXTURE_EMPTY_PAYLOAD).unwrap();
+        assert_eq!(frame.byte_count, 0);
+        let (_, n) = drain_decoder(dec);
+        assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn decode_fcs_valid() {
+        assert!(MctpSerialMedium.deserialize(FIXTURE_FCS_VALID).is_ok());
+    }
+
+    #[test]
+    fn decode_fcs_invalid_rejects() {
+        match MctpSerialMedium.deserialize(FIXTURE_FCS_INVALID) {
+            Err(crate::MctpPacketError::MediumError("fcs mismatch")) => {}
+            other => panic!(
+                "expected MediumError(\"fcs mismatch\"), got {:?}",
+                other.err()
+            ),
+        }
+    }
+
+    #[test]
+    fn decode_invalid_escape_rejects() {
+        match MctpSerialMedium.deserialize(FIXTURE_INVALID_ESCAPE) {
+            Err(crate::MctpPacketError::MediumError("invalid escape in body")) => {}
+            other => panic!(
+                "expected MediumError(\"invalid escape in body\"), got {:?}",
+                other.err()
+            ),
+        }
+    }
+
+    #[test]
+    fn decode_premature_end_flag_rejects() {
+        match MctpSerialMedium.deserialize(FIXTURE_PREMATURE_END_FLAG) {
+            Err(crate::MctpPacketError::MediumError("unexpected 0x7E in body")) => {}
+            other => panic!(
+                "expected MediumError(\"unexpected 0x7E in body\"), got {:?}",
+                other.err()
+            ),
+        }
+    }
+
+    fn fixture_roundtrip(wire: &[u8]) {
+        let m = MctpSerialMedium;
+        let (_frame, dec) = m.deserialize(wire).unwrap();
+        let (decoded, n) = drain_decoder(dec);
+        let mut out = [0u8; 1024];
+        let serialized = m
+            .serialize((), &mut out, |e| {
+                e.write_all(&decoded[..n])
+                    .map_err(|_| MctpPacketError::MediumError("write failed"))
+            })
+            .unwrap();
+        assert_eq!(serialized, wire);
+    }
+
+    #[test]
+    fn fixture_roundtrip_basic_rx() {
+        fixture_roundtrip(FIXTURE_BASIC_RX);
+    }
+
+    #[test]
+    fn fixture_roundtrip_payload_contains_7e() {
+        fixture_roundtrip(FIXTURE_PAYLOAD_CONTAINS_7E);
+    }
+
+    #[test]
+    fn fixture_roundtrip_payload_contains_7d() {
+        fixture_roundtrip(FIXTURE_PAYLOAD_CONTAINS_7D);
+    }
+
+    #[test]
+    fn fixture_roundtrip_payload_contains_both() {
+        fixture_roundtrip(FIXTURE_PAYLOAD_CONTAINS_BOTH);
+    }
+
+    #[test]
+    fn fixture_roundtrip_max_mtu_frame() {
+        fixture_roundtrip(FIXTURE_MAX_MTU_FRAME);
+    }
+
+    #[test]
+    fn fixture_roundtrip_empty_payload() {
+        fixture_roundtrip(FIXTURE_EMPTY_PAYLOAD);
+    }
+
+    #[test]
+    fn fixture_roundtrip_fcs_valid() {
+        fixture_roundtrip(FIXTURE_FCS_VALID);
     }
 }
