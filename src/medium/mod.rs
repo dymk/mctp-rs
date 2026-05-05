@@ -6,6 +6,9 @@ use crate::{
 pub mod smbus_espi;
 mod util;
 
+#[cfg(feature = "serial")]
+pub mod serial;
+
 pub trait MctpMedium: Sized {
     /// the medium specific header and trailer for the packet
     type Frame: MctpMediumFrame<Self>;
