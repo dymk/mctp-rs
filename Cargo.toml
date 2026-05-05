@@ -7,10 +7,12 @@ edition = "2024"
 default = []
 espi = ["dep:espi-device"]
 defmt = ["dep:defmt", "embedded-batteries/defmt"]
+serial = ["dep:crc"]
 
 [dependencies]
 espi-device = { git = "https://github.com/OpenDevicePartnership/haf-ec-service", optional = true }
 bit-register = { git = "https://github.com/OpenDevicePartnership/odp-utilities", package = "bit-register" }
+crc = { version = "3.4", default-features = false, optional = true }
 num_enum = { version = "0.7.4", default-features = false }
 smbus-pec = "1.0.1"
 thiserror = { version = "2.0.16", default-features = false }
