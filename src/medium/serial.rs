@@ -670,4 +670,81 @@ mod medium_tests {
     fn fixture_roundtrip_fcs_valid() {
         fixture_roundtrip(FIXTURE_FCS_VALID);
     }
+
+    #[test]
+    fn packetize_with_stuffing_respects_mtu() {
+        // 251-byte payload of all 0x7E. Each byte stuffs to 2 wire
+        // bytes (0x7D 0x5E), so encoded body footprint per packet is
+        // 2x decoded length. The packet body MTU is 251 wire bytes;
+        // each MCTP packet also carries a 4-byte transport header
+        // which itself is `wire_size_of`-measured. Expect the message
+        // to split across multiple packets and no body region to
+        // exceed CONST_MTU wire bytes.
+        use crate::{
+            endpoint_id::EndpointId, mctp_message_tag::MctpMessageTag,
+            mctp_packet_context::MctpReplyContext, mctp_sequence_number::MctpSequenceNumber,
+            serialize::SerializePacketState,
+        };
+
+        let payload = [0x7E_u8; 251];
+        let mut assembly = [0u8; 1024];
+        let medium = MctpSerialMedium;
+        let reply_context = MctpReplyContext::<MctpSerialMedium> {
+            destination_endpoint_id: EndpointId::Id(0x0A),
+            source_endpoint_id: EndpointId::Id(0x08),
+            packet_sequence_number: MctpSequenceNumber::new(0),
+            message_tag: MctpMessageTag::default(),
+            medium_context: (),
+        };
+        let mut state = SerializePacketState {
+            medium: &medium,
+            reply_context,
+            current_packet_num: 0,
+            serialized_message_header: false,
+            message_buffer: &payload[..],
+            assembly_buffer: &mut assembly[..],
+        };
+
+        let mut total_decoded_body = 0usize;
+        let mut packet_count = 0usize;
+        loop {
+            // We cannot iterate `state.next()` more than once because
+            // `next` mutably borrows the assembly buffer for each
+            // returned slice. Take one packet, process it, then break.
+            let pkt = match state.next() {
+                Some(Ok(pkt)) => {
+                    let mut tmp = [0u8; 1024];
+                    tmp[..pkt.len()].copy_from_slice(pkt);
+                    (tmp, pkt.len())
+                }
+                Some(Err(e)) => panic!("serialize error: {e:?}"),
+                None => break,
+            };
+            packet_count += 1;
+            // Deserialize the packet to recover the wire body length
+            // and the decoded body byte count.
+            let (frame, dec) = medium.deserialize(&pkt.0[..pkt.1]).unwrap();
+            // Decoded body byte count INCLUDES the 4 transport-header
+            // bytes — subtract to get the actual payload bytes.
+            assert!(frame.byte_count as usize >= 4);
+            let payload_decoded = frame.byte_count as usize - 4;
+            total_decoded_body += payload_decoded;
+            // Wire body region (between header and FCS) MUST be <=
+            // CONST_MTU under MEDIUM-08 chunk-sizing.
+            let _ = dec; // decoder discard
+            let wire_body_len = pkt.1 - 2 /* hdr */ - 1 /* end-flag */;
+            // Subtract the (possibly stuffed) FCS bytes — they are 2
+            // FCS bytes but each may stuff to 2 wire bytes. Worst case
+            // 4 bytes; lower bound on body wire = wire_body_len - 4.
+            assert!(
+                wire_body_len <= CONST_MTU + 4,
+                "packet {packet_count} body exceeds MTU + worst-case FCS: {wire_body_len}"
+            );
+        }
+        assert!(
+            packet_count >= 2,
+            "expected multi-packet split, got {packet_count}"
+        );
+        assert_eq!(total_decoded_body, payload.len());
+    }
 }
