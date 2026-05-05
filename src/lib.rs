@@ -183,6 +183,10 @@ pub use error::{MctpPacketError, MctpPacketResult};
 pub use mctp_message_tag::MctpMessageTag;
 pub use mctp_packet_context::{MctpPacketContext, MctpReplyContext};
 pub use mctp_sequence_number::MctpSequenceNumber;
+#[cfg(feature = "serial")]
+pub use medium::serial::{
+    CONST_MTU, EC_EID, MctpSerialMedium, MctpSerialMediumFrame, SP_EID, SerialEncoding,
+};
 pub use medium::*;
 pub use message_type::*;
 

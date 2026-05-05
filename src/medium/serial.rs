@@ -672,6 +672,15 @@ mod medium_tests {
     }
 
     #[test]
+    fn public_api_smoke() {
+        let _: crate::MctpSerialMedium = crate::MctpSerialMedium;
+        let _: crate::SerialEncoding = crate::SerialEncoding;
+        assert_eq!(crate::CONST_MTU, 251);
+        assert_eq!(crate::SP_EID, crate::EndpointId::Id(0x08));
+        assert_eq!(crate::EC_EID, crate::EndpointId::Id(0x0A));
+    }
+
+    #[test]
     fn packetize_with_stuffing_respects_mtu() {
         // 251-byte payload of all 0x7E. Each byte stuffs to 2 wire
         // bytes (0x7D 0x5E), so encoded body footprint per packet is
