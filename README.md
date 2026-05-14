@@ -1,3 +1,13 @@
+> **⚠️ ARCHIVED — Source moved.**
+>
+> This repository is no longer the source of truth for `mctp-rs`. The active source now lives in the [`OpenDevicePartnership/embedded-services`](https://github.com/OpenDevicePartnership/embedded-services) workspace as a path-pinned member at [`mctp-rs/`](https://github.com/OpenDevicePartnership/embedded-services/tree/v0.2.0/mctp-rs).
+>
+> The in-tree copy was bootstrapped from this repo's `main @ 3d941ba` in [embedded-services#823](https://github.com/OpenDevicePartnership/embedded-services/pull/823) and brought to parity with `main @ 1b8b7f5` (the head of this repo at the time of archival) in [embedded-services#844](https://github.com/OpenDevicePartnership/embedded-services/pull/844).
+>
+> Open issues and PRs against the new location: <https://github.com/OpenDevicePartnership/embedded-services/issues>.
+
+---
+
 # mctp-rs
 
 A `no_std` Rust implementation of the Management Component Transport Protocol (MCTP) as defined in the [DMTF DSP0236 specification](https://www.dmtf.org/sites/default/files/standards/documents/DSP0236_1.3.3.pdf).
